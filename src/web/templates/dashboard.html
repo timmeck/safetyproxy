@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SafetyProxy — AI Security Dashboard</title>
+<style>
+:root {
+    --primary: #8B5CF6;
+    --primary-light: #A78BFA;
+    --primary-dark: #7C3AED;
+    --primary-glow: rgba(139, 92, 246, 0.3);
+    --bg-deep: #0f172a;
+    --bg-card: #1e293b;
+    --bg-card-hover: #253349;
+    --bg-input: #0f172a;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --text-bright: #f8fafc;
+    --border: #334155;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #3b82f6;
+    --danger-bg: rgba(239, 68, 68, 0.1);
+    --success-bg: rgba(16, 185, 129, 0.1);
+    --warning-bg: rgba(245, 158, 11, 0.1);
+    --info-bg: rgba(59, 130, 246, 0.1);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-deep);
+    color: var(--text);
+    min-height: 100vh;
+}
+a { color: var(--primary-light); text-decoration: none; }
+a:hover { color: var(--primary); }
+
+/* Header */
+.header {
+    background: linear-gradient(135deg, var(--bg-card) 0%, #1a1f3a 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+.shield-icon {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    box-shadow: 0 0 20px var(--primary-glow);
+}
+.header-brand h1 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--text-bright);
+}
+.header-brand h1 span { color: var(--primary-light); }
+.header-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+}
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    animation: pulse 2s infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+    50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+}
+
+/* Main Layout */
+.main { max-width: 1400px; margin: 0 auto; padding: 1.5rem 2rem; }
+
+/* Stats Grid */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+.stat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s, border-color 0.2s;
+}
+.stat-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--primary);
+}
+.stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    border-radius: 12px 12px 0 0;
+}
+.stat-card.purple::before { background: var(--primary); }
+.stat-card.red::before { background: var(--danger); }
+.stat-card.green::before { background: var(--success); }
+.stat-card.yellow::before { background: var(--warning); }
+.stat-label { font-size: 0.8rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+.stat-value { font-size: 2rem; font-weight: 700; color: var(--text-bright); }
+.stat-icon {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    font-size: 1.5rem;
+    opacity: 0.3;
+}
+
+/* Grid Layout */
+.grid-2 {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+@media (max-width: 900px) {
+    .grid-2 { grid-template-columns: 1fr; }
+}
+
+/* Cards */
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+}
+.card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-bright);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.card-title .icon { color: var(--primary-light); }
+
+/* Chart Area */
+.chart-container {
+    position: relative;
+    height: 200px;
+    margin-top: 0.5rem;
+}
+.chart-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 180px;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+}
+.chart-bar-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    position: relative;
+}
+.chart-bar {
+    width: 100%;
+    max-width: 20px;
+    border-radius: 3px 3px 0 0;
+    min-height: 2px;
+    transition: height 0.5s ease;
+}
+.chart-bar.allowed { background: var(--primary); opacity: 0.7; }
+.chart-bar.blocked { background: var(--danger); }
+.chart-date {
+    position: absolute;
+    bottom: -1.2rem;
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+/* Pie Chart (CSS) */
+.pie-chart {
+    width: 160px;
+    height: 160px;
+    border-radius: 50%;
+    margin: 0 auto 1rem;
+    position: relative;
+}
+.pie-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80px;
+    height: 80px;
+    background: var(--bg-card);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--text-bright);
+}
+.legend {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+}
+.legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+/* Table */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th {
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+}
+td {
+    padding: 0.6rem 0.8rem;
+    font-size: 0.85rem;
+    border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+}
+tr:hover td { background: rgba(139, 92, 246, 0.05); }
+.badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 9999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+.badge-high { background: var(--danger-bg); color: var(--danger); }
+.badge-medium { background: var(--warning-bg); color: var(--warning); }
+.badge-low { background: var(--info-bg); color: var(--info); }
+.badge-injection { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+.badge-pii { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+.badge-content { background: rgba(139, 92, 246, 0.15); color: var(--primary-light); }
+.badge-rate_limit { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+
+/* Alerts */
+.alert-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: linear-gradient(90deg, var(--danger) 0%, #dc2626 100%);
+    color: white;
+    padding: 0.5rem 2rem;
+    text-align: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    transform: translateY(-100%);
+    transition: transform 0.3s ease;
+}
+.alert-bar.show { transform: translateY(0); }
+
+/* Tabs */
+.tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+}
+.tab {
+    padding: 0.75rem 1.25rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+}
+.tab:hover { color: var(--text); }
+.tab.active {
+    color: var(--primary-light);
+    border-bottom-color: var(--primary);
+}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-deep); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+/* Footer */
+.footer {
+    text-align: center;
+    padding: 2rem;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    border-top: 1px solid var(--border);
+    margin-top: 2rem;
+}
+</style>
+</head>
+<body>
+
+<div class="alert-bar" id="alertBar"></div>
+
+<header class="header">
+    <div class="header-brand">
+        <div class="shield-icon">&#x1F6E1;</div>
+        <h1>Safety<span>Proxy</span></h1>
+    </div>
+    <div class="header-status">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Connecting...</span>
+    </div>
+</header>
+
+<main class="main">
+    <!-- Tabs -->
+    <div class="tabs">
+        <div class="tab active" data-tab="overview">Overview</div>
+        <div class="tab" data-tab="violations">Violations</div>
+        <div class="tab" data-tab="apps">Apps</div>
+        <div class="tab" data-tab="policies">Policies</div>
+    </div>
+
+    <!-- Overview Tab -->
+    <div class="tab-content active" id="tab-overview">
+        <div class="stats-grid">
+            <div class="stat-card purple">
+                <div class="stat-label">Requests Today</div>
+                <div class="stat-value" id="statRequests">0</div>
+                <div class="stat-icon">&#x1F4E8;</div>
+            </div>
+            <div class="stat-card red">
+                <div class="stat-label">Blocked</div>
+                <div class="stat-value" id="statBlocked">0</div>
+                <div class="stat-icon">&#x1F6AB;</div>
+            </div>
+            <div class="stat-card green">
+                <div class="stat-label">PII Redacted</div>
+                <div class="stat-value" id="statPII">0</div>
+                <div class="stat-icon">&#x1F50F;</div>
+            </div>
+            <div class="stat-card yellow">
+                <div class="stat-label">Injection Attempts</div>
+                <div class="stat-value" id="statInjection">0</div>
+                <div class="stat-icon">&#x26A0;</div>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-title"><span class="icon">&#x1F4CA;</span> Threat Timeline (30 days)</div>
+                <div class="chart-container">
+                    <div class="chart-bars" id="chartBars"></div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-title"><span class="icon">&#x1F4CB;</span> Violation Breakdown</div>
+                <div class="pie-chart" id="pieChart">
+                    <div class="pie-center" id="pieTotal">0</div>
+                </div>
+                <div class="legend" id="pieLegend"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title"><span class="icon">&#x1F525;</span> Recent Events</div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>App</th>
+                            <th>Type</th>
+                            <th>Severity</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="eventsTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Violations Tab -->
+    <div class="tab-content" id="tab-violations">
+        <div class="card">
+            <div class="card-title"><span class="icon">&#x1F6A8;</span> All Violations</div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Time</th>
+                            <th>App</th>
+                            <th>Type</th>
+                            <th>Severity</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="violationsTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Apps Tab -->
+    <div class="tab-content" id="tab-apps">
+        <div class="card">
+            <div class="card-title"><span class="icon">&#x1F4F1;</span> Registered Apps</div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Policy</th>
+                            <th>Status</th>
+                            <th>API Key</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody id="appsTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Policies Tab -->
+    <div class="tab-content" id="tab-policies">
+        <div class="card">
+            <div class="card-title"><span class="icon">&#x1F4DC;</span> Security Policies</div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Injection Threshold</th>
+                            <th>PII Mode</th>
+                            <th>Content Action</th>
+                            <th>RPM / RPH / RPD</th>
+                            <th>Max Tokens</th>
+                        </tr>
+                    </thead>
+                    <tbody id="policiesTable"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</main>
+
+<footer class="footer">
+    SafetyProxy v1.0.0 &mdash; Self-hosted AI Safety Proxy &mdash; EU AI Act Compliant Logging
+</footer>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+
+// Tabs
+$$('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        $$('.tab').forEach(t => t.classList.remove('active'));
+        $$('.tab-content').forEach(tc => tc.classList.remove('active'));
+        tab.classList.add('active');
+        $(`#tab-${tab.dataset.tab}`).classList.add('active');
+
+        if (tab.dataset.tab === 'violations') loadViolations();
+        if (tab.dataset.tab === 'apps') loadApps();
+        if (tab.dataset.tab === 'policies') loadPolicies();
+    });
+});
+
+// Fetch helpers
+async function api(path) {
+    const r = await fetch(path);
+    return r.json();
+}
+
+function timeAgo(iso) {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    const now = new Date();
+    const diff = (now - d) / 1000;
+    if (diff < 60) return Math.floor(diff) + 's ago';
+    if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+    return Math.floor(diff/86400) + 'd ago';
+}
+
+function severityBadge(s) {
+    return `<span class="badge badge-${s || 'low'}">${s || 'low'}</span>`;
+}
+
+function typeBadge(t) {
+    return `<span class="badge badge-${t || 'injection'}">${t || '-'}</span>`;
+}
+
+const PIE_COLORS = ['#8B5CF6', '#ef4444', '#f59e0b', '#3b82f6', '#10b981', '#f97316', '#ec4899'];
+
+// Load overview data
+async function loadOverview() {
+    try {
+        const data = await api('/api/stats');
+        const s = data.stats;
+
+        $('#statRequests').textContent = s.requests_today || 0;
+        $('#statBlocked').textContent = s.blocked_today || 0;
+        $('#statPII').textContent = s.pii_redacted_today || 0;
+        $('#statInjection').textContent = s.injection_attempts_today || 0;
+
+        // Chart
+        const bars = data.daily || [];
+        const chartEl = $('#chartBars');
+        chartEl.innerHTML = '';
+        const maxVal = Math.max(1, ...bars.map(b => b.total || 1));
+
+        if (bars.length === 0) {
+            chartEl.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;width:100%;color:var(--text-dim);font-size:0.85rem;">No data yet — proxy some requests to see the chart</div>';
+        } else {
+            bars.forEach((b, i) => {
+                const allowedH = ((b.allowed || 0) / maxVal) * 160;
+                const blockedH = ((b.blocked || 0) / maxVal) * 160;
+                const label = (i % 5 === 0 || i === bars.length - 1) ? b.date?.slice(5) : '';
+                chartEl.innerHTML += `
+                    <div class="chart-bar-group">
+                        <div class="chart-bar blocked" style="height:${blockedH}px" title="Blocked: ${b.blocked}"></div>
+                        <div class="chart-bar allowed" style="height:${allowedH}px" title="Allowed: ${b.allowed}"></div>
+                        ${label ? `<span class="chart-date">${label}</span>` : ''}
+                    </div>`;
+            });
+        }
+
+        // Pie
+        const bd = data.violation_breakdown || [];
+        const pieEl = $('#pieChart');
+        const legendEl = $('#pieLegend');
+        const total = bd.reduce((a, b) => a + b.count, 0);
+        $('#pieTotal').textContent = total;
+
+        if (total === 0) {
+            pieEl.style.background = 'var(--border)';
+            legendEl.innerHTML = '<div style="color:var(--text-dim);font-size:0.8rem;">No violations recorded</div>';
+        } else {
+            let gradParts = [];
+            let cumPct = 0;
+            legendEl.innerHTML = '';
+            bd.forEach((item, i) => {
+                const pct = (item.count / total) * 100;
+                const color = PIE_COLORS[i % PIE_COLORS.length];
+                gradParts.push(`${color} ${cumPct}% ${cumPct + pct}%`);
+                cumPct += pct;
+                legendEl.innerHTML += `
+                    <div class="legend-item">
+                        <div class="legend-dot" style="background:${color}"></div>
+                        ${item.violation_type} (${item.count})
+                    </div>`;
+            });
+            pieEl.style.background = `conic-gradient(${gradParts.join(', ')})`;
+        }
+
+        // Recent events
+        const violations = await api('/api/violations?limit=10');
+        const tbody = $('#eventsTable');
+        tbody.innerHTML = '';
+        (violations.violations || []).forEach(v => {
+            tbody.innerHTML += `<tr>
+                <td>${timeAgo(v.created_at)}</td>
+                <td>${v.app_name || 'App #' + v.app_id}</td>
+                <td>${typeBadge(v.violation_type)}</td>
+                <td>${severityBadge(v.severity)}</td>
+                <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(v.details || '')}</td>
+            </tr>`;
+        });
+        if (!violations.violations?.length) {
+            tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-dim);text-align:center;">No violations yet</td></tr>';
+        }
+
+        // Status
+        const status = await api('/api/status');
+        $('#statusDot').style.background = status.llm_healthy ? 'var(--success)' : 'var(--danger)';
+        $('#statusText').textContent = `${status.llm_provider}/${status.llm_model} | ${status.stats.active_apps} apps`;
+    } catch(e) {
+        console.error('Load failed:', e);
+        $('#statusText').textContent = 'Error loading data';
+        $('#statusDot').style.background = 'var(--danger)';
+    }
+}
+
+async function loadViolations() {
+    const data = await api('/api/violations?limit=200');
+    const tbody = $('#violationsTable');
+    tbody.innerHTML = '';
+    (data.violations || []).forEach(v => {
+        tbody.innerHTML += `<tr>
+            <td>${v.id}</td>
+            <td>${timeAgo(v.created_at)}</td>
+            <td>${v.app_name || 'App #' + v.app_id}</td>
+            <td>${typeBadge(v.violation_type)}</td>
+            <td>${severityBadge(v.severity)}</td>
+            <td style="max-width:500px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(v.details || '')}</td>
+        </tr>`;
+    });
+}
+
+async function loadApps() {
+    const data = await api('/api/apps');
+    const tbody = $('#appsTable');
+    tbody.innerHTML = '';
+    (data.apps || []).forEach(a => {
+        tbody.innerHTML += `<tr>
+            <td>${a.id}</td>
+            <td>${escapeHtml(a.name)}</td>
+            <td>${a.policy_name || 'default'}</td>
+            <td><span class="badge ${a.status === 'active' ? 'badge-low' : 'badge-high'}">${a.status}</span></td>
+            <td style="font-family:monospace;font-size:0.75rem;">${a.api_key?.slice(0,12)}...</td>
+            <td>${timeAgo(a.created_at)}</td>
+        </tr>`;
+    });
+}
+
+async function loadPolicies() {
+    const data = await api('/api/policies');
+    const tbody = $('#policiesTable');
+    tbody.innerHTML = '';
+    (data.policies || []).forEach(p => {
+        tbody.innerHTML += `<tr>
+            <td>${p.id}</td>
+            <td>${escapeHtml(p.name)}</td>
+            <td>${p.injection_threshold}</td>
+            <td><span class="badge badge-${p.pii_mode === 'block' ? 'high' : p.pii_mode === 'redact' ? 'medium' : 'low'}">${p.pii_mode}</span></td>
+            <td><span class="badge badge-${p.content_action === 'block' ? 'high' : 'medium'}">${p.content_action}</span></td>
+            <td>${p.rate_limit_rpm} / ${p.rate_limit_rph} / ${p.rate_limit_rpd}</td>
+            <td>${p.max_tokens_per_request}</td>
+        </tr>`;
+    });
+}
+
+function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+
+// SSE
+function connectSSE() {
+    const es = new EventSource('/api/events/stream');
+    es.onopen = () => {
+        $('#statusDot').style.background = 'var(--success)';
+    };
+    es.onmessage = (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            if (data.type === 'request') {
+                loadOverview();
+                if (data.status === 'blocked') {
+                    showAlert(`Request blocked: ${data.blocked_reason || 'policy violation'}`);
+                }
+            }
+        } catch {}
+    };
+    es.onerror = () => {
+        $('#statusDot').style.background = 'var(--warning)';
+        setTimeout(connectSSE, 5000);
+    };
+}
+
+function showAlert(msg) {
+    const bar = $('#alertBar');
+    bar.textContent = msg;
+    bar.classList.add('show');
+    setTimeout(() => bar.classList.remove('show'), 4000);
+}
+
+// Init
+loadOverview();
+connectSSE();
+setInterval(loadOverview, 30000);
+</script>
+</body>
+</html>

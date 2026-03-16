@@ -1,0 +1,12 @@
+version: "3.8"
+
+services:
+  safetyproxy:
+    build: .
+    ports:
+      - "8700:8700"
+    volumes:
+      - ./safetyproxy.db:/app/safetyproxy.db
+    env_file:
+      - .env
+    restart: unless-stopped
