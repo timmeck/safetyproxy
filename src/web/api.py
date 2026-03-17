@@ -48,6 +48,55 @@ app = FastAPI(title="SafetyProxy", version="1.0.0", lifespan=lifespan)
 app.add_middleware(AuthMiddleware)
 
 
+# ── Nexus Protocol Endpoint ────────────────────────────────────────
+
+@app.post("/nexus/handle")
+async def nexus_handle(request: Request):
+    """Handle incoming NexusRequest from the Nexus protocol layer."""
+    import time, uuid
+    body = await request.json()
+    start = time.perf_counter_ns()
+    capability = body.get("capability", "")
+    query = body.get("query", "")
+    req_id = body.get("request_id", "")
+    from_agent = body.get("from_agent", "")
+
+    try:
+        if capability == "prompt_injection_detection":
+            result = await engine.process_request(
+                messages=[{"role": "user", "content": query}],
+                model="check-only", app_key="nexus", forward_to_llm=False,
+            )
+            answer = json.dumps(result, default=str)
+            confidence = 0.90
+        elif capability == "pii_detection":
+            result = await engine.process_request(
+                messages=[{"role": "user", "content": query}],
+                model="check-only", app_key="nexus", forward_to_llm=False,
+            )
+            answer = json.dumps(result, default=str)
+            confidence = 0.85
+        else:
+            elapsed = (time.perf_counter_ns() - start) // 1_000_000
+            return {"response_id": uuid.uuid4().hex, "request_id": req_id,
+                    "from_agent": "safetyproxy", "to_agent": from_agent,
+                    "status": "failed", "answer": "", "confidence": 0.0,
+                    "error": f"Unsupported capability: {capability}",
+                    "processing_ms": elapsed, "cost": 0.0, "sources": [], "meta": {}}
+
+        elapsed = (time.perf_counter_ns() - start) // 1_000_000
+        return {"response_id": uuid.uuid4().hex, "request_id": req_id,
+                "from_agent": "safetyproxy", "to_agent": from_agent,
+                "status": "completed", "answer": answer, "confidence": confidence,
+                "processing_ms": elapsed, "cost": 0.005, "sources": [], "meta": {"capability": capability}}
+    except Exception as e:
+        elapsed = (time.perf_counter_ns() - start) // 1_000_000
+        return {"response_id": uuid.uuid4().hex, "request_id": req_id,
+                "from_agent": "safetyproxy", "to_agent": from_agent,
+                "status": "failed", "answer": "", "confidence": 0.0,
+                "error": str(e), "processing_ms": elapsed, "cost": 0.0, "sources": [], "meta": {}}
+
+
 # ── Dashboard ─────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
