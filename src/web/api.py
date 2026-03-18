@@ -1,4 +1,5 @@
 """FastAPI application for SafetyProxy."""
+
 import asyncio
 import json
 from contextlib import asynccontextmanager
@@ -7,14 +8,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
+from src.ai.llm import LLM
 from src.config import NEXUS_URL, SAFETYPROXY_PORT
 from src.db.database import Database
-from src.ai.llm import LLM
 from src.guard.engine import GuardEngine
 from src.guard.policies import PolicyManager
 from src.nexus_sdk import NexusAdapter
-from src.web.auth import AuthMiddleware
 from src.utils.logger import get_logger
+from src.web.auth import AuthMiddleware
 
 log = get_logger("api")
 
@@ -49,12 +50,24 @@ app = FastAPI(title="SafetyProxy", version="1.0.0", lifespan=lifespan)
 app.add_middleware(AuthMiddleware)
 
 nexus = NexusAdapter(
-    app=app, agent_name="safetyproxy", nexus_url=NEXUS_URL,
+    app=app,
+    agent_name="safetyproxy",
+    nexus_url=NEXUS_URL,
     endpoint=f"http://localhost:{SAFETYPROXY_PORT}",
     description="AI Safety Proxy — prompt injection, PII detection, content filtering",
     capabilities=[
-        {"name": "prompt_injection_detection", "description": "Detect prompt injection attacks", "languages": ["en"], "price_per_request": 0.005},
-        {"name": "pii_detection", "description": "Detect and flag PII in text", "languages": ["en"], "price_per_request": 0.005},
+        {
+            "name": "prompt_injection_detection",
+            "description": "Detect prompt injection attacks",
+            "languages": ["en"],
+            "price_per_request": 0.005,
+        },
+        {
+            "name": "pii_detection",
+            "description": "Detect and flag PII in text",
+            "languages": ["en"],
+            "price_per_request": 0.005,
+        },
     ],
     tags=["safety", "security", "pii", "injection"],
 )
@@ -62,26 +75,33 @@ nexus = NexusAdapter(
 
 @nexus.handle("prompt_injection_detection")
 async def handle_injection(query: str, params: dict) -> dict:
-    result = await engine.process_request(messages=[{"role": "user", "content": query}], model="check-only", app_key="nexus", forward_to_llm=False)
+    result = await engine.process_request(
+        messages=[{"role": "user", "content": query}], model="check-only", app_key="nexus", forward_to_llm=False
+    )
     return {"result": json.dumps(result, default=str), "confidence": 0.90, "cost": 0.005}
 
 
 @nexus.handle("pii_detection")
 async def handle_pii(query: str, params: dict) -> dict:
-    result = await engine.process_request(messages=[{"role": "user", "content": query}], model="check-only", app_key="nexus", forward_to_llm=False)
+    result = await engine.process_request(
+        messages=[{"role": "user", "content": query}], model="check-only", app_key="nexus", forward_to_llm=False
+    )
     return {"result": json.dumps(result, default=str), "confidence": 0.85, "cost": 0.005}
 
 
 # ── Dashboard ─────────────────────────────────────────────────────
 
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     from pathlib import Path
+
     template_path = Path(__file__).parent / "templates" / "dashboard.html"
     return HTMLResponse(template_path.read_text(encoding="utf-8"))
 
 
 # ── Status ────────────────────────────────────────────────────────
+
 
 @app.get("/api/status")
 async def status():
@@ -98,6 +118,7 @@ async def status():
 
 
 # ── Proxy ─────────────────────────────────────────────────────────
+
 
 @app.post("/api/proxy/chat")
 async def proxy_chat(request: Request):
@@ -119,19 +140,25 @@ async def proxy_chat(request: Request):
     )
 
     # Broadcast event
-    broadcast_event("request", {
-        "status": result.status,
-        "injection_score": result.injection_score,
-        "pii_redacted": result.pii_redacted,
-        "blocked_reason": result.blocked_reason,
-    })
+    broadcast_event(
+        "request",
+        {
+            "status": result.status,
+            "injection_score": result.injection_score,
+            "pii_redacted": result.pii_redacted,
+            "blocked_reason": result.blocked_reason,
+        },
+    )
 
     if not result.allowed:
-        return JSONResponse({
-            "error": "Request blocked",
-            "reason": result.blocked_reason,
-            "details": result.to_dict(),
-        }, status_code=403)
+        return JSONResponse(
+            {
+                "error": "Request blocked",
+                "reason": result.blocked_reason,
+                "details": result.to_dict(),
+            },
+            status_code=403,
+        )
 
     return {
         "response": result.response,
@@ -146,6 +173,7 @@ async def proxy_chat(request: Request):
 
 
 # ── Apps ──────────────────────────────────────────────────────────
+
 
 @app.get("/api/apps")
 async def list_apps():
@@ -176,6 +204,7 @@ async def delete_app(app_id: int):
 
 # ── Policies ──────────────────────────────────────────────────────
 
+
 @app.get("/api/policies")
 async def list_policies():
     policies = await policy_manager.list_policies()
@@ -202,6 +231,7 @@ async def create_policy(request: Request):
 
 # ── Violations ────────────────────────────────────────────────────
 
+
 @app.get("/api/violations")
 async def list_violations(limit: int = 100, app_id: int | None = None):
     violations = await db.get_violations(limit=limit, app_id=app_id)
@@ -210,6 +240,7 @@ async def list_violations(limit: int = 100, app_id: int | None = None):
 
 # ── Requests ──────────────────────────────────────────────────────
 
+
 @app.get("/api/requests")
 async def list_requests(limit: int = 100, app_id: int | None = None):
     requests = await db.get_requests(limit=limit, app_id=app_id)
@@ -217,6 +248,7 @@ async def list_requests(limit: int = 100, app_id: int | None = None):
 
 
 # ── Stats ─────────────────────────────────────────────────────────
+
 
 @app.get("/api/stats")
 async def get_stats():
@@ -232,6 +264,7 @@ async def get_stats():
 
 # ── Activity Log ──────────────────────────────────────────────────
 
+
 @app.get("/api/activity")
 async def get_activity(limit: int = 100):
     activity = await db.get_activity(limit=limit)
@@ -239,6 +272,7 @@ async def get_activity(limit: int = 100):
 
 
 # ── Audit Export ──────────────────────────────────────────────────
+
 
 @app.get("/api/audit/export")
 async def export_audit(limit: int = 1000):
@@ -257,6 +291,7 @@ async def export_audit(limit: int = 1000):
 
 # ── SSE ───────────────────────────────────────────────────────────
 
+
 @app.get("/api/events/stream")
 async def event_stream(request: Request):
     queue: asyncio.Queue = asyncio.Queue(maxsize=100)
@@ -270,7 +305,7 @@ async def event_stream(request: Request):
                 try:
                     data = await asyncio.wait_for(queue.get(), timeout=30.0)
                     yield {"event": "message", "data": data}
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield {"event": "ping", "data": "{}"}
         finally:
             _event_subscribers.remove(queue)

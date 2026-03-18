@@ -1,4 +1,5 @@
 """Content filtering for SafetyProxy."""
+
 import re
 from dataclasses import dataclass
 
@@ -34,7 +35,10 @@ CONTENT_CATEGORIES: dict[str, list[tuple[str, int]]] = {
     "hate_speech": [
         (r"\b(racial\s+slur|ethnic\s+cleansing|genocide)\b", 90),
         (r"\b(supremacy|supremacist|inferior\s+race)\b", 85),
-        (r"\b(hate\s+all|exterminate|eradicate)\s+(jews|muslims|christians|blacks|whites|asians|hispanics|immigrants|refugees)\b", 95),
+        (
+            r"\b(hate\s+all|exterminate|eradicate)\s+(jews|muslims|christians|blacks|whites|asians|hispanics|immigrants|refugees)\b",
+            95,
+        ),
         (r"\b(subhuman|mongrel|vermin)\b.*\b(people|race|ethnic)\b", 80),
         (r"\bdeath\s+to\s+\w+\b", 75),
         (r"\b(homophobic|transphobic|racist|bigoted)\s+(rant|attack|tirade)\b", 60),
@@ -100,11 +104,13 @@ def filter_content(text: str, categories: list[str] | None = None) -> list[Conte
                 max_score = max(max_score, weight)
 
         if matched_terms:
-            flags.append(ContentFlag(
-                category=category,
-                matched_terms=matched_terms,
-                score=max_score,
-            ))
+            flags.append(
+                ContentFlag(
+                    category=category,
+                    matched_terms=matched_terms,
+                    score=max_score,
+                )
+            )
 
     return flags
 

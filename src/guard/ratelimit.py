@@ -1,5 +1,6 @@
 """Rate limiting for SafetyProxy."""
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
 
 from src.db.database import Database
 from src.utils.logger import get_logger
@@ -28,7 +29,7 @@ class RateLimiter:
         rph_limit = policy.get("rate_limit_rph", 1000)
         rpd_limit = policy.get("rate_limit_rpd", 10000)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Initialize counters for this app if needed
         if app_id not in self._counters:
@@ -38,9 +39,7 @@ class RateLimiter:
 
         # Clean old entries (older than 24h)
         cutoff_day = now - timedelta(days=1)
-        self._counters[app_id]["timestamps"] = [
-            ts for ts in timestamps if ts > cutoff_day
-        ]
+        self._counters[app_id]["timestamps"] = [ts for ts in timestamps if ts > cutoff_day]
         timestamps = self._counters[app_id]["timestamps"]
 
         # Count requests in windows
@@ -83,7 +82,7 @@ class RateLimiter:
 
     def record_request(self, app_id: int):
         """Record a request timestamp for rate limiting."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if app_id not in self._counters:
             self._counters[app_id] = {"timestamps": []}
         self._counters[app_id]["timestamps"].append(now)

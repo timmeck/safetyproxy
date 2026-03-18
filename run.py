@@ -1,10 +1,11 @@
 """SafetyProxy CLI — Click-based command interface."""
+
 import asyncio
+
 import click
 
 from src.config import SAFETYPROXY_PORT
 from src.db.database import Database
-from src.guard.policies import POLICY_PRESETS
 
 
 def run_async(coro):
@@ -46,8 +47,10 @@ def apps():
     click.echo(f"{'ID':<5} {'Name':<20} {'Policy':<15} {'Status':<10} {'API Key':<30}")
     click.echo("-" * 80)
     for a in app_list:
-        key_display = a['api_key'][:16] + '...' if a.get('api_key') else '-'
-        click.echo(f"{a['id']:<5} {a['name']:<20} {a.get('policy_name', 'default'):<15} {a['status']:<10} {key_display:<30}")
+        key_display = a["api_key"][:16] + "..." if a.get("api_key") else "-"
+        click.echo(
+            f"{a['id']:<5} {a['name']:<20} {a.get('policy_name', 'default'):<15} {a['status']:<10} {key_display:<30}"
+        )
 
 
 @cli.command()
@@ -82,7 +85,9 @@ def policies():
     click.echo(f"{'ID':<5} {'Name':<15} {'Injection':<12} {'PII':<10} {'Content':<10} {'RPM':<8} {'RPH':<8} {'RPD':<8}")
     click.echo("-" * 76)
     for p in policy_list:
-        click.echo(f"{p['id']:<5} {p['name']:<15} {p['injection_threshold']:<12} {p['pii_mode']:<10} {p['content_action']:<10} {p['rate_limit_rpm']:<8} {p['rate_limit_rph']:<8} {p['rate_limit_rpd']:<8}")
+        click.echo(
+            f"{p['id']:<5} {p['name']:<15} {p['injection_threshold']:<12} {p['pii_mode']:<10} {p['content_action']:<10} {p['rate_limit_rpm']:<8} {p['rate_limit_rph']:<8} {p['rate_limit_rpd']:<8}"
+        )
 
 
 @cli.command("create-policy")
@@ -100,19 +105,22 @@ def create_policy(name, preset, injection_threshold, pii_mode, content_action, r
     run_async(db.initialize())
     if preset:
         from src.guard.policies import PolicyManager
+
         pm = PolicyManager(db)
         pid = run_async(pm.create_from_preset(name, preset))
         click.echo(f"Policy '{name}' created from preset '{preset}' (ID: {pid})")
     else:
-        pid = run_async(db.create_policy(
-            name,
-            injection_threshold=injection_threshold,
-            pii_mode=pii_mode,
-            content_action=content_action,
-            rate_limit_rpm=rpm,
-            rate_limit_rph=rph,
-            rate_limit_rpd=rpd,
-        ))
+        pid = run_async(
+            db.create_policy(
+                name,
+                injection_threshold=injection_threshold,
+                pii_mode=pii_mode,
+                content_action=content_action,
+                rate_limit_rpm=rpm,
+                rate_limit_rph=rph,
+                rate_limit_rpd=rpd,
+            )
+        )
         click.echo(f"Policy '{name}' created (ID: {pid})")
 
 
@@ -129,8 +137,8 @@ def violations(limit):
     click.echo(f"{'ID':<5} {'App':<15} {'Type':<15} {'Severity':<10} {'Details':<50}")
     click.echo("-" * 95)
     for v in viols:
-        details = (v['details'] or '')[:50]
-        app_name = v.get('app_name', f"App #{v['app_id']}")
+        details = (v["details"] or "")[:50]
+        app_name = v.get("app_name", f"App #{v['app_id']}")
         click.echo(f"{v['id']:<5} {app_name:<15} {v['violation_type']:<15} {v['severity']:<10} {details:<50}")
 
 
@@ -140,6 +148,7 @@ def violations(limit):
 def serve(host, port):
     """Start the SafetyProxy dashboard and API server."""
     import uvicorn
+
     actual_port = port or SAFETYPROXY_PORT
     click.echo(f"Starting SafetyProxy on {host}:{actual_port}")
     uvicorn.run("src.web.api:app", host=host, port=actual_port, reload=False)

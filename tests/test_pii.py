@@ -1,5 +1,5 @@
 """Tests for PII detection and redaction."""
-import pytest
+
 from src.guard.pii import detect_pii, redact_pii
 
 

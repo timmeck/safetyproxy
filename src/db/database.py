@@ -1,7 +1,8 @@
 """SQLite database layer for SafetyProxy."""
+
 import json
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import aiosqlite
@@ -78,7 +79,7 @@ CREATE TABLE IF NOT EXISTS activity_log (
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class Database:
@@ -95,7 +96,18 @@ class Database:
             if count == 0:
                 await db.execute(
                     "INSERT INTO policies (name, injection_threshold, pii_mode, content_categories, content_action, rate_limit_rpm, rate_limit_rph, rate_limit_rpd, max_tokens_per_request, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    ("default", 70, "redact", '["violence","hate_speech","sexual","illegal","self_harm"]', "block", 60, 1000, 10000, 4000, _now()),
+                    (
+                        "default",
+                        70,
+                        "redact",
+                        '["violence","hate_speech","sexual","illegal","self_harm"]',
+                        "block",
+                        60,
+                        1000,
+                        10000,
+                        4000,
+                        _now(),
+                    ),
                 )
                 await db.commit()
         log.info(f"Database initialized at {self.db_path}")
@@ -127,7 +139,9 @@ class Database:
         fields = {
             "injection_threshold": kwargs.get("injection_threshold", 70),
             "pii_mode": kwargs.get("pii_mode", "redact"),
-            "content_categories": kwargs.get("content_categories", '["violence","hate_speech","sexual","illegal","self_harm"]'),
+            "content_categories": kwargs.get(
+                "content_categories", '["violence","hate_speech","sexual","illegal","self_harm"]'
+            ),
             "content_action": kwargs.get("content_action", "block"),
             "rate_limit_rpm": kwargs.get("rate_limit_rpm", 60),
             "rate_limit_rph": kwargs.get("rate_limit_rph", 1000),
@@ -137,7 +151,18 @@ class Database:
         async with aiosqlite.connect(self.db_path) as db:
             cur = await db.execute(
                 "INSERT INTO policies (name, injection_threshold, pii_mode, content_categories, content_action, rate_limit_rpm, rate_limit_rph, rate_limit_rpd, max_tokens_per_request, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (name, fields["injection_threshold"], fields["pii_mode"], fields["content_categories"], fields["content_action"], fields["rate_limit_rpm"], fields["rate_limit_rph"], fields["rate_limit_rpd"], fields["max_tokens_per_request"], _now()),
+                (
+                    name,
+                    fields["injection_threshold"],
+                    fields["pii_mode"],
+                    fields["content_categories"],
+                    fields["content_action"],
+                    fields["rate_limit_rpm"],
+                    fields["rate_limit_rph"],
+                    fields["rate_limit_rpd"],
+                    fields["max_tokens_per_request"],
+                    _now(),
+                ),
             )
             await db.commit()
             return cur.lastrowid
@@ -147,7 +172,9 @@ class Database:
     async def get_apps(self) -> list[dict]:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            cur = await db.execute("SELECT a.*, p.name as policy_name FROM apps a LEFT JOIN policies p ON a.policy_id = p.id ORDER BY a.id")
+            cur = await db.execute(
+                "SELECT a.*, p.name as policy_name FROM apps a LEFT JOIN policies p ON a.policy_id = p.id ORDER BY a.id"
+            )
             rows = await cur.fetchall()
             return [dict(r) for r in rows]
 
@@ -190,7 +217,9 @@ class Database:
             cur = await db.execute(
                 "INSERT INTO requests (app_id, model, provider, input_tokens, output_tokens, status, blocked_reason, injection_score, pii_detected, pii_redacted, content_flags, latency_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    app_id, model, provider,
+                    app_id,
+                    model,
+                    provider,
                     kwargs.get("input_tokens", 0),
                     kwargs.get("output_tokens", 0),
                     kwargs.get("status", "allowed"),
@@ -210,7 +239,9 @@ class Database:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             if app_id:
-                cur = await db.execute("SELECT * FROM requests WHERE app_id = ? ORDER BY id DESC LIMIT ?", (app_id, limit))
+                cur = await db.execute(
+                    "SELECT * FROM requests WHERE app_id = ? ORDER BY id DESC LIMIT ?", (app_id, limit)
+                )
             else:
                 cur = await db.execute("SELECT * FROM requests ORDER BY id DESC LIMIT ?", (limit,))
             rows = await cur.fetchall()
@@ -218,7 +249,9 @@ class Database:
 
     # ── Violations ────────────────────────────────────────────────────
 
-    async def log_violation(self, request_id: int | None, app_id: int, violation_type: str, severity: str, details: str) -> int:
+    async def log_violation(
+        self, request_id: int | None, app_id: int, violation_type: str, severity: str, details: str
+    ) -> int:
         async with aiosqlite.connect(self.db_path) as db:
             cur = await db.execute(
                 "INSERT INTO violations (request_id, app_id, violation_type, severity, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -231,9 +264,15 @@ class Database:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             if app_id:
-                cur = await db.execute("SELECT v.*, a.name as app_name FROM violations v LEFT JOIN apps a ON v.app_id = a.id WHERE v.app_id = ? ORDER BY v.id DESC LIMIT ?", (app_id, limit))
+                cur = await db.execute(
+                    "SELECT v.*, a.name as app_name FROM violations v LEFT JOIN apps a ON v.app_id = a.id WHERE v.app_id = ? ORDER BY v.id DESC LIMIT ?",
+                    (app_id, limit),
+                )
             else:
-                cur = await db.execute("SELECT v.*, a.name as app_name FROM violations v LEFT JOIN apps a ON v.app_id = a.id ORDER BY v.id DESC LIMIT ?", (limit,))
+                cur = await db.execute(
+                    "SELECT v.*, a.name as app_name FROM violations v LEFT JOIN apps a ON v.app_id = a.id ORDER BY v.id DESC LIMIT ?",
+                    (limit,),
+                )
             rows = await cur.fetchall()
             return [dict(r) for r in rows]
 
@@ -258,18 +297,25 @@ class Database:
 
     async def get_stats(self) -> dict:
         async with aiosqlite.connect(self.db_path) as db:
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            today = datetime.now(UTC).strftime("%Y-%m-%d")
 
             cur = await db.execute("SELECT COUNT(*) FROM requests WHERE created_at LIKE ?", (f"{today}%",))
             requests_today = (await cur.fetchone())[0]
 
-            cur = await db.execute("SELECT COUNT(*) FROM requests WHERE status = 'blocked' AND created_at LIKE ?", (f"{today}%",))
+            cur = await db.execute(
+                "SELECT COUNT(*) FROM requests WHERE status = 'blocked' AND created_at LIKE ?", (f"{today}%",)
+            )
             blocked_today = (await cur.fetchone())[0]
 
-            cur = await db.execute("SELECT COUNT(*) FROM requests WHERE pii_redacted > 0 AND created_at LIKE ?", (f"{today}%",))
+            cur = await db.execute(
+                "SELECT COUNT(*) FROM requests WHERE pii_redacted > 0 AND created_at LIKE ?", (f"{today}%",)
+            )
             pii_redacted_today = (await cur.fetchone())[0]
 
-            cur = await db.execute("SELECT COUNT(*) FROM violations WHERE violation_type = 'injection' AND created_at LIKE ?", (f"{today}%",))
+            cur = await db.execute(
+                "SELECT COUNT(*) FROM violations WHERE violation_type = 'injection' AND created_at LIKE ?",
+                (f"{today}%",),
+            )
             injection_attempts_today = (await cur.fetchone())[0]
 
             cur = await db.execute("SELECT COUNT(*) FROM requests")
@@ -294,7 +340,8 @@ class Database:
     async def get_daily_stats(self, days: int = 30) -> list[dict]:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            cur = await db.execute("""
+            cur = await db.execute(
+                """
                 SELECT
                     DATE(created_at) as date,
                     COUNT(*) as total,
@@ -304,7 +351,9 @@ class Database:
                 WHERE created_at >= DATE('now', ?)
                 GROUP BY DATE(created_at)
                 ORDER BY date
-            """, (f"-{days} days",))
+            """,
+                (f"-{days} days",),
+            )
             rows = await cur.fetchall()
             return [dict(r) for r in rows]
 

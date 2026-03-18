@@ -1,5 +1,7 @@
 """Tests for database layer."""
+
 import pytest
+
 from src.db.database import Database
 
 

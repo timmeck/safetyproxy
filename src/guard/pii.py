@@ -1,4 +1,5 @@
 """PII detection and redaction for SafetyProxy."""
+
 import re
 from dataclasses import dataclass
 
@@ -78,13 +79,15 @@ def detect_pii(text: str) -> list[PIIMatch]:
                     continue
 
             seen_spans.add(span)
-            matches.append(PIIMatch(
-                type=pii_type,
-                value=value,
-                start=match.start(),
-                end=match.end(),
-                redacted_text=redaction_label,
-            ))
+            matches.append(
+                PIIMatch(
+                    type=pii_type,
+                    value=value,
+                    start=match.start(),
+                    end=match.end(),
+                    redacted_text=redaction_label,
+                )
+            )
 
     # Sort by position
     matches.sort(key=lambda m: m.start)
@@ -105,7 +108,7 @@ def redact_pii(text: str, matches: list[PIIMatch] | None = None) -> str:
     # Process replacements from end to start to maintain positions
     result = text
     for match in sorted(matches, key=lambda m: m.start, reverse=True):
-        result = result[:match.start] + match.redacted_text + result[match.end:]
+        result = result[: match.start] + match.redacted_text + result[match.end :]
 
     return result
 

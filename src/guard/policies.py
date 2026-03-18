@@ -1,4 +1,5 @@
 """Policy management for SafetyProxy."""
+
 import json
 
 from src.db.database import Database

@@ -1,15 +1,16 @@
 """Core guard engine — orchestrates all security checks for SafetyProxy."""
+
 import json
 import time
 from dataclasses import dataclass, field
 
-from src.db.database import Database
 from src.ai.llm import LLM
+from src.db.database import Database
+from src.guard.content import filter_content, is_flagged
 from src.guard.injection import detect_injection
 from src.guard.pii import detect_pii, redact_pii
-from src.guard.content import filter_content, is_flagged
-from src.guard.ratelimit import RateLimiter
 from src.guard.policies import PolicyManager
+from src.guard.ratelimit import RateLimiter
 from src.utils.logger import get_logger
 
 log = get_logger("engine")
@@ -90,6 +91,7 @@ class GuardEngine:
             policy = await self.db.get_policy_by_name("default")
             if not policy:
                 from src.guard.policies import POLICY_PRESETS
+
                 policy = POLICY_PRESETS["moderate"]
 
         app_id = app["id"] if app else 0
@@ -140,8 +142,11 @@ class GuardEngine:
                     )
                     req_id = await self._log_request(app_id, model, result)
                     await self._log_violation(
-                        req_id, app_id, "injection", "high",
-                        json.dumps({"score": score, "findings": injection_result["findings"][:5]})
+                        req_id,
+                        app_id,
+                        "injection",
+                        "high",
+                        json.dumps({"score": score, "findings": injection_result["findings"][:5]}),
                     )
                     return result
 
@@ -163,8 +168,7 @@ class GuardEngine:
                         )
                         req_id = await self._log_request(app_id, model, result)
                         await self._log_violation(
-                            req_id, app_id, "pii", "high",
-                            f"PII types found: {', '.join(types_found)}"
+                            req_id, app_id, "pii", "high", f"PII types found: {', '.join(types_found)}"
                         )
                         return result
                     elif pii_mode == "redact":
@@ -190,8 +194,7 @@ class GuardEngine:
                         )
                         req_id = await self._log_request(app_id, model, result)
                         await self._log_violation(
-                            req_id, app_id, "content", "high",
-                            f"Flagged categories: {', '.join(cats)}"
+                            req_id, app_id, "content", "high", f"Flagged categories: {', '.join(cats)}"
                         )
                         return result
 
@@ -231,8 +234,7 @@ class GuardEngine:
                     )
                     req_id = await self._log_request(app_id, model, result)
                     await self._log_violation(
-                        req_id, app_id, "content_response", "medium",
-                        f"Response flagged categories: {', '.join(cats)}"
+                        req_id, app_id, "content_response", "medium", f"Response flagged categories: {', '.join(cats)}"
                     )
                     return result
 
@@ -258,8 +260,7 @@ class GuardEngine:
         if all_pii and pii_mode == "detect":
             req_id = await self._log_request(app_id, model, result)
             await self._log_violation(
-                req_id, app_id, "pii", "low",
-                f"PII detected (log only): {json.dumps(all_pii[:5])}"
+                req_id, app_id, "pii", "low", f"PII detected (log only): {json.dumps(all_pii[:5])}"
             )
 
         return result
@@ -280,7 +281,9 @@ class GuardEngine:
             latency_ms=result.latency_ms,
         )
 
-    async def _log_violation(self, request_id: int | None, app_id: int, violation_type: str, severity: str, details: str):
+    async def _log_violation(
+        self, request_id: int | None, app_id: int, violation_type: str, severity: str, details: str
+    ):
         if app_id == 0:
             return
         await self.db.log_violation(request_id, app_id, violation_type, severity, details)

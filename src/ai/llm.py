@@ -1,7 +1,8 @@
 """LLM abstraction -- Anthropic Claude + Ollama."""
+
 import httpx
 
-from src.config import LLM_PROVIDER, ANTHROPIC_API_KEY, OLLAMA_URL, DEFAULT_MODEL
+from src.config import ANTHROPIC_API_KEY, DEFAULT_MODEL, LLM_PROVIDER, OLLAMA_URL
 from src.utils.logger import get_logger
 
 log = get_logger("llm")
@@ -35,11 +36,13 @@ class LLM:
                 log.warning(f"LLM attempt {attempt + 1} failed: {e}")
                 if attempt < 2:
                     import asyncio
-                    await asyncio.sleep(1.0 * (2 ** attempt))
+
+                    await asyncio.sleep(1.0 * (2**attempt))
         return None
 
     async def _anthropic(self, prompt, system, max_tokens) -> str:
         import anthropic
+
         client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
         resp = await client.messages.create(
             model=self.model,

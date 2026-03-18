@@ -1,7 +1,7 @@
 """Prompt injection detection for SafetyProxy."""
+
 import base64
 import re
-import unicodedata
 
 from src.utils.logger import get_logger
 
@@ -10,7 +10,11 @@ log = get_logger("injection")
 # Patterns with their injection scores
 INJECTION_PATTERNS: list[tuple[str, int, str]] = [
     # Direct instruction override
-    (r"ignore\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions|prompts|context|rules)", 90, "instruction_override"),
+    (
+        r"ignore\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions|prompts|context|rules)",
+        90,
+        "instruction_override",
+    ),
     (r"disregard\s+(all\s+)?(previous|prior|above|earlier)", 90, "instruction_override"),
     (r"forget\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions|prompts|context)", 90, "instruction_override"),
     # Role manipulation
@@ -50,9 +54,17 @@ ZERO_WIDTH_CHARS = {
 
 # Cyrillic homoglyphs that look like Latin letters
 LATIN_TO_CYRILLIC = {
-    "a": "\u0430", "c": "\u0441", "e": "\u0435", "o": "\u043e",
-    "p": "\u0440", "x": "\u0445", "y": "\u0443", "s": "\u0455",
-    "i": "\u0456", "j": "\u0458", "h": "\u04bb",
+    "a": "\u0430",
+    "c": "\u0441",
+    "e": "\u0435",
+    "o": "\u043e",
+    "p": "\u0440",
+    "x": "\u0445",
+    "y": "\u0443",
+    "s": "\u0455",
+    "i": "\u0456",
+    "j": "\u0458",
+    "h": "\u04bb",
 }
 
 
@@ -73,56 +85,66 @@ def detect_injection(text: str) -> dict:
     for pattern, score, category in INJECTION_PATTERNS:
         if re.search(pattern, text_lower, re.IGNORECASE):
             match = re.search(pattern, text_lower, re.IGNORECASE)
-            findings.append({
-                "type": "pattern",
-                "category": category,
-                "score": score,
-                "matched": match.group(0) if match else "",
-            })
+            findings.append(
+                {
+                    "type": "pattern",
+                    "category": category,
+                    "score": score,
+                    "matched": match.group(0) if match else "",
+                }
+            )
             max_score = max(max_score, score)
 
     # 2. Base64 encoded instruction detection
     b64_score = _check_base64(text)
     if b64_score > 0:
-        findings.append({
-            "type": "encoding",
-            "category": "base64_injection",
-            "score": b64_score,
-            "matched": "base64 encoded content with suspicious payload",
-        })
+        findings.append(
+            {
+                "type": "encoding",
+                "category": "base64_injection",
+                "score": b64_score,
+                "matched": "base64 encoded content with suspicious payload",
+            }
+        )
         max_score = max(max_score, b64_score)
 
     # 3. Unicode homoglyph detection
     homoglyph_score = _check_homoglyphs(text)
     if homoglyph_score > 0:
-        findings.append({
-            "type": "encoding",
-            "category": "homoglyph",
-            "score": homoglyph_score,
-            "matched": "unicode homoglyphs detected",
-        })
+        findings.append(
+            {
+                "type": "encoding",
+                "category": "homoglyph",
+                "score": homoglyph_score,
+                "matched": "unicode homoglyphs detected",
+            }
+        )
         max_score = max(max_score, homoglyph_score)
 
     # 4. Zero-width character detection
     zw_score = _check_zero_width(text)
     if zw_score > 0:
-        findings.append({
-            "type": "encoding",
-            "category": "zero_width",
-            "score": zw_score,
-            "matched": "zero-width characters detected",
-        })
+        findings.append(
+            {
+                "type": "encoding",
+                "category": "zero_width",
+                "score": zw_score,
+                "matched": "zero-width characters detected",
+            }
+        )
         max_score = max(max_score, zw_score)
 
     # 5. Excessive special character detection
     special_score = _check_excessive_specials(text)
     if special_score > 0:
-        findings.append({
-            "type": "structure",
-            "category": "excessive_specials",
-            "score": special_score,
-            "matched": "excessive special characters / potential delimiters",
-        })
+        findings.append(
+            {
+                "type": "structure",
+                "category": "excessive_specials",
+                "score": special_score,
+                "matched": "excessive special characters / potential delimiters",
+            }
+        )
         max_score = max(max_score, special_score)
 
     return {"score": max_score, "findings": findings}

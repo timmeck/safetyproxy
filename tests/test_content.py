@@ -1,5 +1,5 @@
 """Tests for content filtering."""
-import pytest
+
 from src.guard.content import filter_content, is_flagged
 
 

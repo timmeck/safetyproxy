@@ -1,8 +1,11 @@
 """Tests for the guard engine."""
+
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, patch
-from src.db.database import Database
+
 from src.ai.llm import LLM
+from src.db.database import Database
 from src.guard.engine import GuardEngine
 
 
@@ -67,7 +70,7 @@ async def test_pii_redacted(engine, db):
     assert result.pii_redacted >= 1
     assert result.status == "redacted"
     # Check the processed message has redaction
-    user_msg = [m for m in result.processed_messages if m["role"] == "user"][0]
+    user_msg = next(m for m in result.processed_messages if m["role"] == "user")
     assert "[EMAIL_REDACTED]" in user_msg["content"]
 
 
