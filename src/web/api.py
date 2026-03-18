@@ -7,11 +7,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
-from src.config import SAFETYPROXY_PORT
+from src.config import NEXUS_URL, SAFETYPROXY_PORT
 from src.db.database import Database
 from src.ai.llm import LLM
 from src.guard.engine import GuardEngine
 from src.guard.policies import PolicyManager
+from src.nexus_sdk import NexusAdapter
 from src.web.auth import AuthMiddleware
 from src.utils.logger import get_logger
 
@@ -47,54 +48,28 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="SafetyProxy", version="1.0.0", lifespan=lifespan)
 app.add_middleware(AuthMiddleware)
 
+nexus = NexusAdapter(
+    app=app, agent_name="safetyproxy", nexus_url=NEXUS_URL,
+    endpoint=f"http://localhost:{SAFETYPROXY_PORT}",
+    description="AI Safety Proxy — prompt injection, PII detection, content filtering",
+    capabilities=[
+        {"name": "prompt_injection_detection", "description": "Detect prompt injection attacks", "languages": ["en"], "price_per_request": 0.005},
+        {"name": "pii_detection", "description": "Detect and flag PII in text", "languages": ["en"], "price_per_request": 0.005},
+    ],
+    tags=["safety", "security", "pii", "injection"],
+)
 
-# ── Nexus Protocol Endpoint ────────────────────────────────────────
 
-@app.post("/nexus/handle")
-async def nexus_handle(request: Request):
-    """Handle incoming NexusRequest from the Nexus protocol layer."""
-    import time, uuid
-    body = await request.json()
-    start = time.perf_counter_ns()
-    capability = body.get("capability", "")
-    query = body.get("query", "")
-    req_id = body.get("request_id", "")
-    from_agent = body.get("from_agent", "")
+@nexus.handle("prompt_injection_detection")
+async def handle_injection(query: str, params: dict) -> dict:
+    result = await engine.process_request(messages=[{"role": "user", "content": query}], model="check-only", app_key="nexus", forward_to_llm=False)
+    return {"result": json.dumps(result, default=str), "confidence": 0.90, "cost": 0.005}
 
-    try:
-        if capability == "prompt_injection_detection":
-            result = await engine.process_request(
-                messages=[{"role": "user", "content": query}],
-                model="check-only", app_key="nexus", forward_to_llm=False,
-            )
-            answer = json.dumps(result, default=str)
-            confidence = 0.90
-        elif capability == "pii_detection":
-            result = await engine.process_request(
-                messages=[{"role": "user", "content": query}],
-                model="check-only", app_key="nexus", forward_to_llm=False,
-            )
-            answer = json.dumps(result, default=str)
-            confidence = 0.85
-        else:
-            elapsed = (time.perf_counter_ns() - start) // 1_000_000
-            return {"response_id": uuid.uuid4().hex, "request_id": req_id,
-                    "from_agent": "safetyproxy", "to_agent": from_agent,
-                    "status": "failed", "answer": "", "confidence": 0.0,
-                    "error": f"Unsupported capability: {capability}",
-                    "processing_ms": elapsed, "cost": 0.0, "sources": [], "meta": {}}
 
-        elapsed = (time.perf_counter_ns() - start) // 1_000_000
-        return {"response_id": uuid.uuid4().hex, "request_id": req_id,
-                "from_agent": "safetyproxy", "to_agent": from_agent,
-                "status": "completed", "answer": answer, "confidence": confidence,
-                "processing_ms": elapsed, "cost": 0.005, "sources": [], "meta": {"capability": capability}}
-    except Exception as e:
-        elapsed = (time.perf_counter_ns() - start) // 1_000_000
-        return {"response_id": uuid.uuid4().hex, "request_id": req_id,
-                "from_agent": "safetyproxy", "to_agent": from_agent,
-                "status": "failed", "answer": "", "confidence": 0.0,
-                "error": str(e), "processing_ms": elapsed, "cost": 0.0, "sources": [], "meta": {}}
+@nexus.handle("pii_detection")
+async def handle_pii(query: str, params: dict) -> dict:
+    result = await engine.process_request(messages=[{"role": "user", "content": query}], model="check-only", app_key="nexus", forward_to_llm=False)
+    return {"result": json.dumps(result, default=str), "confidence": 0.85, "cost": 0.005}
 
 
 # ── Dashboard ─────────────────────────────────────────────────────

@@ -17,5 +17,6 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic" if ANTHROPIC_API_KEY else "
 DEFAULT_MODEL = os.getenv("SAFETYPROXY_MODEL", "claude-sonnet-4-6" if LLM_PROVIDER == "anthropic" else OLLAMA_MODEL)
 
 SAFETYPROXY_PORT = int(os.getenv("SAFETYPROXY_PORT", "8700"))
+NEXUS_URL = os.getenv("NEXUS_URL", "http://localhost:9500")
 SAFETYPROXY_API_KEY = os.getenv("SAFETYPROXY_API_KEY", "")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
