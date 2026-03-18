@@ -61,6 +61,17 @@ curl http://localhost:8700/api/audit/export
 docker-compose up -d
 ```
 
+## Nexus Protocol
+
+SafetyProxy integrates with [Nexus](https://github.com/timmeck/nexus) via the NexusAdapter SDK.
+
+| Capability | Description | Price |
+|-----------|-------------|-------|
+| `prompt_injection_detection` | Detect prompt injection attacks | 0.005 |
+| `pii_detection` | Detect and flag PII in text | 0.005 |
+
+**Features**: HMAC signature verification, automatic heartbeats (30s), auto-registration with Nexus on startup.
+
 ## Testing
 
 ```bash
