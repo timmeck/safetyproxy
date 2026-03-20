@@ -15,6 +15,7 @@ class PIIMatch:
     start: int
     end: int
     redacted_text: str
+    severity: str = "medium"
 
     def to_dict(self) -> dict:
         return {
@@ -23,6 +24,7 @@ class PIIMatch:
             "start": self.start,
             "end": self.end,
             "redacted_text": self.redacted_text,
+            "severity": self.severity,
         }
 
 
@@ -38,7 +40,34 @@ PII_PATTERNS: list[tuple[str, str, str]] = [
     (r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b", "phone", "[PHONE_REDACTED]"),
     # IP address
     (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "ip_address", "[IP_REDACTED]"),
+    # IBAN (International Bank Account Number)
+    (r"\b[A-Z]{2}\d{2}[A-Z0-9]{4}\d{7}([A-Z0-9]?){0,16}\b", "iban", "[IBAN_REDACTED]"),
+    # Date of birth
+    (r"\b(?:DOB|born|birthday|date of birth)[:\s]*\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}\b", "date_of_birth", "[DOB_REDACTED]"),
+    # Passport number
+    (r"\b[A-Z]{1,2}\d{6,9}\b", "passport", "[PASSPORT_REDACTED]"),
+    # MAC address
+    (r"\b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b", "mac_address", "[MAC_REDACTED]"),
+    # Bitcoin address
+    (r"\b[13][a-km-zA-HJ-NP-Z1-9]{25,34}\b", "bitcoin_address", "[BITCOIN_REDACTED]"),
+    # IPv6 address
+    (r"\b([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b", "ipv6", "[IPV6_REDACTED]"),
 ]
+
+# Severity levels for each PII type
+PII_SEVERITY: dict[str, str] = {
+    "ssn": "critical",
+    "credit_card": "critical",
+    "iban": "critical",
+    "passport": "high",
+    "date_of_birth": "high",
+    "bitcoin_address": "high",
+    "email": "medium",
+    "phone": "medium",
+    "ip_address": "low",
+    "ipv6": "low",
+    "mac_address": "low",
+}
 
 
 def detect_pii(text: str) -> list[PIIMatch]:
@@ -86,6 +115,7 @@ def detect_pii(text: str) -> list[PIIMatch]:
                     start=match.start(),
                     end=match.end(),
                     redacted_text=redaction_label,
+                    severity=PII_SEVERITY.get(pii_type, "medium"),
                 )
             )
 

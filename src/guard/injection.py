@@ -43,6 +43,17 @@ INJECTION_PATTERNS: list[tuple[str, int, str]] = [
     (r"<\/?(?:system|instruction|prompt|override)>", 50, "tag_injection"),
 ]
 
+# Indirect prompt injection patterns for tool/function outputs
+INDIRECT_INJECTION_PATTERNS: list[tuple[str, float, str]] = [
+    (r"(?i)ignore\s+(all\s+)?previous\s+instructions", 0.95, "ignore_previous"),
+    (r"(?i)you\s+are\s+now\s+a", 0.85, "role_override"),
+    (r"(?i)system\s*:\s*you", 0.80, "system_prompt_inject"),
+    (r"(?i)forget\s+(everything|all|your)\s+(you|instructions|rules)", 0.90, "memory_wipe"),
+    (r"(?i)<\|im_start\|>|<\|im_end\|>|\[INST\]|\[/INST\]", 0.95, "special_tokens"),
+    (r"(?i)act\s+as\s+(if|though)\s+you", 0.75, "behavior_override"),
+    (r"(?i)output\s+your\s+(system|initial)\s+(prompt|instructions)", 0.90, "prompt_exfil"),
+]
+
 # Known zero-width characters
 ZERO_WIDTH_CHARS = {
     "\u200b",  # zero-width space
@@ -203,3 +214,50 @@ def _check_excessive_specials(text: str) -> int:
     elif ratio > 0.2:
         return 20
     return 0
+
+
+def scan_tool_output(text: str) -> dict:
+    """Scan tool/function output for indirect prompt injection attempts.
+
+    Tool outputs (e.g. web search results, API responses, file contents) can contain
+    hidden instructions designed to hijack the LLM's behavior. This method checks
+    for these indirect injection patterns.
+
+    Returns:
+        dict with keys:
+            - is_suspicious (bool): True if injection patterns were found
+            - max_confidence (float): highest confidence score (0.0-1.0)
+            - findings (list): detected indirect injection patterns
+    """
+    if not text or not text.strip():
+        return {"is_suspicious": False, "max_confidence": 0.0, "findings": []}
+
+    findings = []
+    max_confidence = 0.0
+
+    for pattern, confidence, category in INDIRECT_INJECTION_PATTERNS:
+        match = re.search(pattern, text)
+        if match:
+            findings.append(
+                {
+                    "type": "indirect_injection",
+                    "category": category,
+                    "confidence": confidence,
+                    "matched": match.group(0),
+                }
+            )
+            max_confidence = max(max_confidence, confidence)
+
+    is_suspicious = max_confidence >= 0.75
+
+    if is_suspicious:
+        log.warning(
+            f"Indirect injection detected in tool output: "
+            f"confidence={max_confidence:.2f}, categories={[f['category'] for f in findings]}"
+        )
+
+    return {
+        "is_suspicious": is_suspicious,
+        "max_confidence": max_confidence,
+        "findings": findings,
+    }

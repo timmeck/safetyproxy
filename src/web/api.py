@@ -262,6 +262,16 @@ async def get_stats():
     }
 
 
+# ── Analytics ─────────────────────────────────────────────────────
+
+
+@app.get("/api/analytics/violations")
+async def violation_analytics(hours: int = 24):
+    """Violation analytics: per-hour/day stats, top types, top blocked, PII stats, injection trends."""
+    analytics = await db.get_violation_analytics(hours=hours)
+    return {"analytics": analytics}
+
+
 # ── Activity Log ──────────────────────────────────────────────────
 
 

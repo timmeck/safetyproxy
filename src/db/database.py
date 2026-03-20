@@ -369,6 +369,126 @@ class Database:
             rows = await cur.fetchall()
             return [dict(r) for r in rows]
 
+    async def get_violation_analytics(self, hours: int = 24) -> dict:
+        """Get violation analytics: per-hour/day stats, top types, top IPs, PII stats, injection trends."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+
+            # Violations per hour (last N hours)
+            cur = await db.execute(
+                """
+                SELECT
+                    strftime('%Y-%m-%d %H:00', created_at) as hour,
+                    COUNT(*) as count
+                FROM violations
+                WHERE created_at >= datetime('now', ?)
+                GROUP BY hour
+                ORDER BY hour
+                """,
+                (f"-{hours} hours",),
+            )
+            per_hour = [dict(r) for r in await cur.fetchall()]
+
+            # Violations per day (last 30 days)
+            cur = await db.execute(
+                """
+                SELECT
+                    DATE(created_at) as day,
+                    COUNT(*) as count
+                FROM violations
+                WHERE created_at >= DATE('now', '-30 days')
+                GROUP BY day
+                ORDER BY day
+                """,
+            )
+            per_day = [dict(r) for r in await cur.fetchall()]
+
+            # Top violation types
+            cur = await db.execute(
+                """
+                SELECT violation_type, severity, COUNT(*) as count
+                FROM violations
+                GROUP BY violation_type, severity
+                ORDER BY count DESC
+                LIMIT 20
+                """,
+            )
+            top_types = [dict(r) for r in await cur.fetchall()]
+
+            # Top blocked IPs (from requests with blocked status that have PII ip_address detections)
+            cur = await db.execute(
+                """
+                SELECT
+                    v.details,
+                    COUNT(*) as count
+                FROM violations v
+                WHERE v.violation_type = 'injection'
+                GROUP BY v.details
+                ORDER BY count DESC
+                LIMIT 10
+                """,
+            )
+            top_blocked = [dict(r) for r in await cur.fetchall()]
+
+            # PII detection stats
+            cur = await db.execute(
+                """
+                SELECT
+                    COUNT(*) as total_requests_with_pii,
+                    SUM(pii_redacted) as total_pii_redacted
+                FROM requests
+                WHERE pii_redacted > 0
+                """,
+            )
+            pii_row = await cur.fetchone()
+            pii_stats = dict(pii_row) if pii_row else {"total_requests_with_pii": 0, "total_pii_redacted": 0}
+
+            # PII type breakdown from pii_detected JSON field
+            cur = await db.execute(
+                """
+                SELECT pii_detected
+                FROM requests
+                WHERE pii_detected IS NOT NULL
+                ORDER BY id DESC
+                LIMIT 500
+                """,
+            )
+            pii_rows = await cur.fetchall()
+            pii_type_counts: dict[str, int] = {}
+            for row in pii_rows:
+                try:
+                    detected = json.loads(row[0]) if row[0] else []
+                    for item in detected:
+                        pii_type = item.get("type", "unknown") if isinstance(item, dict) else str(item)
+                        pii_type_counts[pii_type] = pii_type_counts.get(pii_type, 0) + 1
+                except (json.JSONDecodeError, TypeError):
+                    continue
+            pii_stats["type_breakdown"] = pii_type_counts
+
+            # Injection attempt trends (per day, last 30 days)
+            cur = await db.execute(
+                """
+                SELECT
+                    DATE(created_at) as day,
+                    COUNT(*) as count
+                FROM violations
+                WHERE violation_type = 'injection'
+                    AND created_at >= DATE('now', '-30 days')
+                GROUP BY day
+                ORDER BY day
+                """,
+            )
+            injection_trends = [dict(r) for r in await cur.fetchall()]
+
+            return {
+                "violations_per_hour": per_hour,
+                "violations_per_day": per_day,
+                "top_violation_types": top_types,
+                "top_blocked": top_blocked,
+                "pii_stats": pii_stats,
+                "injection_trends": injection_trends,
+            }
+
     async def get_request_count_since(self, app_id: int, since_iso: str) -> int:
         async with aiosqlite.connect(self.db_path) as db:
             cur = await db.execute(
