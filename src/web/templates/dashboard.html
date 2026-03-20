@@ -334,6 +334,68 @@ tr:hover td { background: rgba(139, 92, 246, 0.05); }
     border-top: 1px solid var(--border);
     margin-top: 2rem;
 }
+
+/* ═══ Professional Upgrade: SafetyProxy (#FFD740) ═══ */
+:root {
+    --primary: #FFD740;
+    --primary-light: #FFE082;
+    --primary-dark: #FFC107;
+    --primary-glow: rgba(255, 215, 64, 0.3);
+}
+
+/* Better typography */
+body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+
+/* Improved cards */
+.stat-card, .card {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    border-radius: 12px;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.stat-card:hover {
+    box-shadow: 0 8px 24px rgba(255, 215, 64, 0.06), 0 2px 8px rgba(0,0,0,0.4);
+    transform: translateY(-2px);
+}
+.card:hover { box-shadow: 0 4px 16px rgba(255, 215, 64, 0.04); }
+
+/* Card fade-in animation */
+@keyframes cardFadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.stat-card { animation: cardFadeIn 0.4s ease both; }
+.stat-card:nth-child(1) { animation-delay: 0.05s; }
+.stat-card:nth-child(2) { animation-delay: 0.1s; }
+.stat-card:nth-child(3) { animation-delay: 0.15s; }
+.stat-card:nth-child(4) { animation-delay: 0.2s; }
+.card { animation: cardFadeIn 0.4s ease both; animation-delay: 0.25s; }
+
+/* Better table styling */
+tr:nth-child(even) td { background: rgba(255, 215, 64, 0.015); }
+tr:hover td { background: rgba(255, 215, 64, 0.04); }
+th { position: sticky; top: 0; background: var(--bg-card); z-index: 5; }
+
+/* Status indicators */
+.status-dot { box-shadow: 0 0 8px rgba(16, 185, 129, 0.4); }
+
+/* Shield icon glow */
+.shield-icon { background: linear-gradient(135deg, #FFD740 0%, #FFC107 100%); box-shadow: 0 0 20px rgba(255, 215, 64, 0.3); }
+
+/* Brand accent */
+.header-brand h1 span { color: #FFD740; }
+
+/* Tab active */
+.tab.active { color: #FFD740; border-bottom-color: #FFD740; }
+.tab:hover { color: #FFE082; }
+
+/* Stat card top accents */
+.stat-card.purple::before { background: #FFD740; }
+.stat-card.red::before { background: var(--danger); }
+.stat-card.green::before { background: var(--success); }
+.stat-card.yellow::before { background: #FFD740; }
+
+/* Chart bars */
+.chart-bar.allowed { background: #FFD740; opacity: 0.7; }
 </style>
 </head>
 <body>
