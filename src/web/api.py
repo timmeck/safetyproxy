@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
 from src.ai.llm import LLM
-from src.config import NEXUS_URL, SAFETYPROXY_PORT
+from src.config import AUDIT_RETENTION_DAYS, NEXUS_URL, SAFETYPROXY_PORT
 from src.db.database import Database
 from src.guard.engine import GuardEngine
 from src.guard.policies import PolicyManager
@@ -150,6 +150,19 @@ async def proxy_chat(request: Request):
         },
     )
 
+    # Store audit log entry
+    prompt_text = " ".join(m.get("content", "") for m in messages)
+    await db.log_audit(
+        app_id=0,  # Will be replaced once app lookup happens in engine
+        model=model or "unknown",
+        prompt=prompt_text,
+        response=result.response,
+        guard_results=result.to_dict(),
+        status=result.status,
+        blocked_reason=result.blocked_reason,
+        latency_ms=result.latency_ms,
+    )
+
     if not result.allowed:
         return JSONResponse(
             {
@@ -202,7 +215,7 @@ async def delete_app(app_id: int):
     return {"status": "deleted"}
 
 
-# ── Policies ──────────────────────────────────────────────────────
+# ── Policies (CRUD) ──────────────────────────────────────────────
 
 
 @app.get("/api/policies")
@@ -227,6 +240,37 @@ async def create_policy(request: Request):
 
     pid = await db.create_policy(name, **body)
     return {"id": pid, "name": name}
+
+
+@app.put("/api/policies/{policy_id}")
+async def update_policy(policy_id: int, request: Request):
+    """Update an existing policy."""
+    body = await request.json()
+    if not body:
+        return JSONResponse({"error": "No fields to update"}, status_code=400)
+
+    # If content_categories is a list, serialize to JSON string
+    if "content_categories" in body and isinstance(body["content_categories"], list):
+        body["content_categories"] = json.dumps(body["content_categories"])
+
+    updated = await db.update_policy(policy_id, **body)
+    if not updated:
+        return JSONResponse({"error": "Policy not found or no valid fields"}, status_code=404)
+
+    policy = await db.get_policy(policy_id)
+    return {"policy": policy}
+
+
+@app.delete("/api/policies/{policy_id}")
+async def delete_policy(policy_id: int):
+    """Delete a policy (cannot delete the default policy)."""
+    deleted = await db.delete_policy(policy_id)
+    if not deleted:
+        return JSONResponse(
+            {"error": "Policy not found or cannot delete the default policy"},
+            status_code=400,
+        )
+    return {"status": "deleted", "id": policy_id}
 
 
 # ── Violations ────────────────────────────────────────────────────
@@ -281,7 +325,16 @@ async def get_activity(limit: int = 100):
     return {"activity": activity}
 
 
-# ── Audit Export ──────────────────────────────────────────────────
+# ── Audit Log ────────────────────────────────────────────────────
+
+
+@app.get("/api/audit/log")
+async def audit_log(page: int = 1, limit: int = 50):
+    """Paginated audit log with full request/response details."""
+    if limit > 200:
+        limit = 200
+    result = await db.get_audit_log(page=page, limit=limit)
+    return result
 
 
 @app.get("/api/audit/export")
@@ -296,6 +349,55 @@ async def export_audit(limit: int = 1000):
         "requests": requests,
         "violations": violations,
         "activity": activity,
+    }
+
+
+@app.post("/api/audit/cleanup")
+async def audit_cleanup(request: Request):
+    """Manually trigger cleanup of old audit entries."""
+    body = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    days = body.get("retention_days", AUDIT_RETENTION_DAYS)
+    deleted = await db.cleanup_old_audit_entries(retention_days=days)
+    return {"deleted": deleted, "retention_days": days}
+
+
+@app.get("/api/audit/{audit_id}")
+async def audit_detail(audit_id: int):
+    """Full detail of a single audit entry including prompt, response, and all guard results."""
+    entry = await db.get_audit_entry(audit_id)
+    if not entry:
+        return JSONResponse({"error": "Audit entry not found"}, status_code=404)
+    return {"audit": entry}
+
+
+@app.post("/api/audit/{audit_id}/replay")
+async def audit_replay(audit_id: int):
+    """Re-run guards on a stored audit entry (useful for testing policy changes)."""
+    entry = await db.get_audit_entry(audit_id)
+    if not entry:
+        return JSONResponse({"error": "Audit entry not found"}, status_code=404)
+
+    prompt = entry.get("prompt")
+    if not prompt:
+        return JSONResponse(
+            {"error": "No prompt stored for this entry (AUDIT_FULL_CONTENT may be disabled)"},
+            status_code=400,
+        )
+
+    # Re-run through the guard engine without forwarding to LLM
+    result = await engine.process_request(
+        messages=[{"role": "user", "content": prompt}],
+        model=entry.get("model", "replay"),
+        forward_to_llm=False,
+    )
+
+    return {
+        "original": {
+            "status": entry.get("status"),
+            "blocked_reason": entry.get("blocked_reason"),
+            "guard_results": entry.get("guard_results"),
+        },
+        "replay": result.to_dict(),
     }
 
 

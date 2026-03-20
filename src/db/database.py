@@ -7,7 +7,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from src.config import DB_PATH
+from src.config import AUDIT_FULL_CONTENT, AUDIT_RETENTION_DAYS, DB_PATH
 from src.utils.logger import get_logger
 
 log = get_logger("db")
@@ -74,6 +74,22 @@ CREATE TABLE IF NOT EXISTS activity_log (
     message TEXT NOT NULL,
     data TEXT,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id INTEGER,
+    app_id INTEGER NOT NULL,
+    model TEXT,
+    prompt TEXT,
+    response TEXT,
+    guard_results TEXT,
+    status TEXT DEFAULT 'allowed',
+    blocked_reason TEXT,
+    latency_ms INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (request_id) REFERENCES requests(id),
+    FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE CASCADE
 );
 """
 
@@ -292,6 +308,135 @@ class Database:
             cur = await db.execute("SELECT * FROM activity_log ORDER BY id DESC LIMIT ?", (limit,))
             rows = await cur.fetchall()
             return [dict(r) for r in rows]
+
+    # ── Audit Log ─────────────────────────────────────────────────────
+
+    async def log_audit(
+        self,
+        app_id: int,
+        model: str | None,
+        prompt: str | None,
+        response: str | None,
+        guard_results: dict | None,
+        status: str = "allowed",
+        blocked_reason: str | None = None,
+        latency_ms: int = 0,
+        request_id: int | None = None,
+    ) -> int:
+        """Store an audit log entry. Full content only if AUDIT_FULL_CONTENT is enabled."""
+        stored_prompt = prompt if AUDIT_FULL_CONTENT else None
+        stored_response = response if AUDIT_FULL_CONTENT else None
+        async with aiosqlite.connect(self.db_path) as db:
+            cur = await db.execute(
+                "INSERT INTO audit_log (request_id, app_id, model, prompt, response, guard_results, status, blocked_reason, latency_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    request_id,
+                    app_id,
+                    model,
+                    stored_prompt,
+                    stored_response,
+                    json.dumps(guard_results) if guard_results else None,
+                    status,
+                    blocked_reason,
+                    latency_ms,
+                    _now(),
+                ),
+            )
+            await db.commit()
+            return cur.lastrowid
+
+    async def get_audit_log(self, page: int = 1, limit: int = 50) -> dict:
+        """Get paginated audit log entries."""
+        offset = (page - 1) * limit
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute("SELECT COUNT(*) FROM audit_log")
+            total = (await cur.fetchone())[0]
+            cur = await db.execute(
+                "SELECT * FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            )
+            rows = await cur.fetchall()
+            entries = []
+            for r in rows:
+                entry = dict(r)
+                if entry.get("guard_results"):
+                    try:
+                        entry["guard_results"] = json.loads(entry["guard_results"])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                entries.append(entry)
+            return {
+                "entries": entries,
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "pages": max(1, (total + limit - 1) // limit),
+            }
+
+    async def get_audit_entry(self, audit_id: int) -> dict | None:
+        """Get a single audit log entry with full detail."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute("SELECT * FROM audit_log WHERE id = ?", (audit_id,))
+            row = await cur.fetchone()
+            if not row:
+                return None
+            entry = dict(row)
+            if entry.get("guard_results"):
+                try:
+                    entry["guard_results"] = json.loads(entry["guard_results"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            return entry
+
+    async def cleanup_old_audit_entries(self, retention_days: int | None = None) -> int:
+        """Delete audit entries older than retention_days. Returns count deleted."""
+        days = retention_days if retention_days is not None else AUDIT_RETENTION_DAYS
+        async with aiosqlite.connect(self.db_path) as db:
+            cur = await db.execute(
+                "DELETE FROM audit_log WHERE created_at < datetime('now', ?)",
+                (f"-{days} days",),
+            )
+            await db.commit()
+            return cur.rowcount
+
+    # ── Policy CRUD ──────────────────────────────────────────────────
+
+    async def update_policy(self, policy_id: int, **kwargs) -> bool:
+        """Update an existing policy. Returns True if found and updated."""
+        allowed_fields = {
+            "name", "injection_threshold", "pii_mode", "content_categories",
+            "content_action", "rate_limit_rpm", "rate_limit_rph", "rate_limit_rpd",
+            "max_tokens_per_request",
+        }
+        updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
+        if not updates:
+            return False
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        values = list(updates.values()) + [policy_id]
+        async with aiosqlite.connect(self.db_path) as db:
+            cur = await db.execute(
+                f"UPDATE policies SET {set_clause} WHERE id = ?",
+                values,
+            )
+            await db.commit()
+            return cur.rowcount > 0
+
+    async def delete_policy(self, policy_id: int) -> bool:
+        """Delete a policy. Prevents deleting the default policy. Returns True if deleted."""
+        async with aiosqlite.connect(self.db_path) as db:
+            # Prevent deleting the default policy
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute("SELECT name FROM policies WHERE id = ?", (policy_id,))
+            row = await cur.fetchone()
+            if not row:
+                return False
+            if row["name"] == "default":
+                return False
+            await db.execute("DELETE FROM policies WHERE id = ?", (policy_id,))
+            await db.commit()
+            return True
 
     # ── Stats ─────────────────────────────────────────────────────────
 

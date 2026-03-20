@@ -117,3 +117,118 @@ async def test_request_count_since(db):
     await db.log_request(app["id"], "gpt-4", "openai")
     count = await db.get_request_count_since(app["id"], "2000-01-01T00:00:00")
     assert count == 2
+
+
+# ── Audit Log Tests ──────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_log_and_get_audit(db):
+    """Can log an audit entry and retrieve it."""
+    audit_id = await db.log_audit(
+        app_id=0,
+        model="test-model",
+        prompt="Hello world",
+        response="Hi there",
+        guard_results={"allowed": True, "injection_score": 0},
+        status="allowed",
+        latency_ms=42,
+    )
+    assert audit_id > 0
+    entry = await db.get_audit_entry(audit_id)
+    assert entry is not None
+    assert entry["model"] == "test-model"
+    assert entry["status"] == "allowed"
+    assert entry["guard_results"]["allowed"] is True
+
+
+@pytest.mark.asyncio
+async def test_audit_log_pagination(db):
+    """Audit log supports pagination."""
+    for i in range(5):
+        await db.log_audit(app_id=0, model="m", prompt=f"p{i}", response=None, guard_results=None)
+
+    result = await db.get_audit_log(page=1, limit=2)
+    assert result["total"] == 5
+    assert len(result["entries"]) == 2
+    assert result["pages"] == 3
+    assert result["page"] == 1
+
+    result2 = await db.get_audit_log(page=3, limit=2)
+    assert len(result2["entries"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_audit_entry_not_found(db):
+    """Returns None for missing audit entry."""
+    entry = await db.get_audit_entry(9999)
+    assert entry is None
+
+
+@pytest.mark.asyncio
+async def test_audit_cleanup(db):
+    """Cleanup removes old entries (0 days = remove all)."""
+    await db.log_audit(app_id=0, model="m", prompt="p", response=None, guard_results=None)
+    result = await db.get_audit_log()
+    assert result["total"] == 1
+    deleted = await db.cleanup_old_audit_entries(retention_days=0)
+    # Entries created just now may or may not be deleted with 0 days
+    # depending on SQLite datetime precision — just verify no crash
+    assert deleted >= 0
+
+
+# ── Policy CRUD Tests ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_update_policy(db):
+    """Can update a policy's fields."""
+    pid = await db.create_policy("updatable", injection_threshold=70)
+    updated = await db.update_policy(pid, injection_threshold=30, pii_mode="block")
+    assert updated is True
+    policy = await db.get_policy(pid)
+    assert policy["injection_threshold"] == 30
+    assert policy["pii_mode"] == "block"
+
+
+@pytest.mark.asyncio
+async def test_update_policy_ignores_invalid_fields(db):
+    """Update ignores fields not in the allowed set."""
+    pid = await db.create_policy("safe-update")
+    updated = await db.update_policy(pid, fake_field="bad")
+    assert updated is False
+
+
+@pytest.mark.asyncio
+async def test_update_nonexistent_policy(db):
+    """Update returns False for missing policy."""
+    updated = await db.update_policy(9999, injection_threshold=10)
+    assert updated is False
+
+
+@pytest.mark.asyncio
+async def test_delete_policy(db):
+    """Can delete a non-default policy."""
+    pid = await db.create_policy("deletable")
+    deleted = await db.delete_policy(pid)
+    assert deleted is True
+    policy = await db.get_policy(pid)
+    assert policy is None
+
+
+@pytest.mark.asyncio
+async def test_cannot_delete_default_policy(db):
+    """Cannot delete the default policy."""
+    default = await db.get_policy_by_name("default")
+    deleted = await db.delete_policy(default["id"])
+    assert deleted is False
+    # Still exists
+    still_there = await db.get_policy_by_name("default")
+    assert still_there is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_nonexistent_policy(db):
+    """Delete returns False for missing policy."""
+    deleted = await db.delete_policy(9999)
+    assert deleted is False

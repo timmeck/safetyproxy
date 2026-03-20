@@ -142,3 +142,138 @@ async def test_audit_export(client):
     assert data["export_type"] == "compliance_audit"
     assert "requests" in data
     assert "violations" in data
+
+
+# ── Policy CRUD API Tests ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_update_policy_api(client):
+    """Can update a policy via PUT."""
+    # Create a policy first
+    create_resp = await client.post("/api/policies", json={"name": "update-me", "preset": "moderate"})
+    assert create_resp.status_code == 200
+    pid = create_resp.json()["id"]
+
+    # Update it
+    resp = await client.put(f"/api/policies/{pid}", json={"injection_threshold": 30})
+    assert resp.status_code == 200
+    assert resp.json()["policy"]["injection_threshold"] == 30
+
+
+@pytest.mark.asyncio
+async def test_update_policy_not_found(client):
+    """Update returns 404 for missing policy."""
+    resp = await client.put("/api/policies/9999", json={"injection_threshold": 10})
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_policy_api(client):
+    """Can delete a policy via DELETE."""
+    create_resp = await client.post("/api/policies", json={"name": "delete-me", "preset": "strict"})
+    pid = create_resp.json()["id"]
+
+    resp = await client.delete(f"/api/policies/{pid}")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "deleted"
+
+
+@pytest.mark.asyncio
+async def test_delete_default_policy_fails(client):
+    """Cannot delete the default policy."""
+    # Get default policy ID
+    policies_resp = await client.get("/api/policies")
+    default_pol = [p for p in policies_resp.json()["policies"] if p["name"] == "default"][0]
+
+    resp = await client.delete(f"/api/policies/{default_pol['id']}")
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_update_policy_with_categories_list(client):
+    """Can update content_categories with a list (auto-serialized)."""
+    create_resp = await client.post("/api/policies", json={"name": "cats-test", "preset": "moderate"})
+    pid = create_resp.json()["id"]
+
+    resp = await client.put(
+        f"/api/policies/{pid}",
+        json={"content_categories": ["violence", "illegal"]},
+    )
+    assert resp.status_code == 200
+
+
+# ── Audit Log API Tests ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_audit_log_endpoint(client):
+    """Audit log endpoint returns paginated results."""
+    # Generate some audit data by making a proxy request
+    app_resp = await client.post("/api/apps", json={"name": "audit-test-app"})
+    app_key = app_resp.json()["api_key"]
+
+    await client.post(
+        "/api/proxy/chat",
+        json={
+            "messages": [{"role": "user", "content": "Hello there"}],
+            "app_key": app_key,
+            "forward_to_llm": False,
+        },
+    )
+
+    resp = await client.get("/api/audit/log?page=1&limit=50")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "entries" in data
+    assert "total" in data
+    assert "page" in data
+    assert "pages" in data
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_not_found(client):
+    """Audit detail returns 404 for missing entry."""
+    resp = await client.get("/api/audit/9999")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_audit_detail_found(client):
+    """Audit detail returns entry when found."""
+    # Create an audit entry via proxy
+    app_resp = await client.post("/api/apps", json={"name": "audit-detail-app"})
+    app_key = app_resp.json()["api_key"]
+
+    await client.post(
+        "/api/proxy/chat",
+        json={
+            "messages": [{"role": "user", "content": "What is 2+2?"}],
+            "app_key": app_key,
+            "forward_to_llm": False,
+        },
+    )
+
+    # Get the log and grab the first entry
+    log_resp = await client.get("/api/audit/log?page=1&limit=1")
+    entries = log_resp.json()["entries"]
+    if entries:
+        audit_id = entries[0]["id"]
+        detail_resp = await client.get(f"/api/audit/{audit_id}")
+        assert detail_resp.status_code == 200
+        assert "audit" in detail_resp.json()
+
+
+@pytest.mark.asyncio
+async def test_audit_replay_not_found(client):
+    """Replay returns 404 for missing entry."""
+    resp = await client.post("/api/audit/9999/replay")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_audit_cleanup_endpoint(client):
+    """Cleanup endpoint works without error."""
+    resp = await client.post("/api/audit/cleanup", json={"retention_days": 365})
+    assert resp.status_code == 200
+    assert "deleted" in resp.json()

@@ -65,13 +65,24 @@ class PolicyManager:
         # Absolute fallback
         return POLICY_PRESETS["moderate"]
 
-    async def create_from_preset(self, name: str, preset: str) -> int | None:
-        """Create a policy from a preset."""
+    async def create_from_preset(self, name: str, preset: str, overrides: dict | None = None) -> int | None:
+        """Create a policy from a preset, with optional overrides for each guard layer."""
         if preset not in POLICY_PRESETS:
             log.warning(f"Unknown preset: {preset}")
             return None
 
-        return await self.db.create_policy(name, **POLICY_PRESETS[preset])
+        params = dict(POLICY_PRESETS[preset])
+        if overrides:
+            allowed_keys = set(params.keys())
+            for k, v in overrides.items():
+                if k in allowed_keys:
+                    # Serialize lists to JSON strings for content_categories
+                    if k == "content_categories" and isinstance(v, list):
+                        params[k] = json.dumps(v)
+                    else:
+                        params[k] = v
+
+        return await self.db.create_policy(name, **params)
 
     async def list_policies(self) -> list[dict]:
         """List all policies with parsed categories."""
@@ -82,7 +93,17 @@ class PolicyManager:
                     p["content_categories_list"] = json.loads(p["content_categories"])
                 except json.JSONDecodeError:
                     p["content_categories_list"] = []
+            # Determine which preset this matches, if any
+            p["preset"] = self._detect_preset(p)
         return policies
+
+    async def update_policy(self, policy_id: int, **kwargs) -> bool:
+        """Update an existing policy."""
+        return await self.db.update_policy(policy_id, **kwargs)
+
+    async def delete_policy(self, policy_id: int) -> bool:
+        """Delete a policy (cannot delete default)."""
+        return await self.db.delete_policy(policy_id)
 
     def get_content_categories(self, policy: dict) -> list[str]:
         """Parse content categories from policy."""
@@ -93,3 +114,15 @@ class PolicyManager:
             except json.JSONDecodeError:
                 return []
         return cats if isinstance(cats, list) else []
+
+    def _detect_preset(self, policy: dict) -> str | None:
+        """Detect if a policy matches a known preset."""
+        for preset_name, preset_vals in POLICY_PRESETS.items():
+            match = True
+            for k, v in preset_vals.items():
+                if policy.get(k) != v:
+                    match = False
+                    break
+            if match:
+                return preset_name
+        return None

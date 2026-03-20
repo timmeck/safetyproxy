@@ -1,7 +1,7 @@
 """Content filtering for SafetyProxy."""
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from src.utils.logger import get_logger
 
@@ -9,18 +9,58 @@ log = get_logger("content")
 
 
 @dataclass
+class CategoryDetail:
+    """Detailed scoring breakdown for a single content category."""
+    keyword_count: int = 0
+    max_weight: int = 0
+    avg_weight: float = 0.0
+    proximity_bonus: float = 0.0
+    context_bonus: float = 0.0
+    confidence: float = 0.0  # 0-1 composite score
+    matched_patterns: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "keyword_count": self.keyword_count,
+            "max_weight": self.max_weight,
+            "avg_weight": round(self.avg_weight, 2),
+            "proximity_bonus": round(self.proximity_bonus, 2),
+            "context_bonus": round(self.context_bonus, 2),
+            "confidence": round(self.confidence, 3),
+            "matched_patterns": self.matched_patterns,
+        }
+
+
+@dataclass
 class ContentFlag:
     category: str
     matched_terms: list[str]
     score: int
+    severity: str = "low"
+    confidence: float = 0.0
+    detail: CategoryDetail | None = None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "category": self.category,
             "matched_terms": self.matched_terms,
             "score": self.score,
+            "severity": self.severity,
+            "confidence": round(self.confidence, 3),
         }
+        if self.detail:
+            d["detail"] = self.detail.to_dict()
+        return d
 
+
+# Context words that amplify confidence when found near keyword matches
+CONTEXT_AMPLIFIERS: dict[str, list[str]] = {
+    "violence": ["instructions", "step by step", "detailed", "guide", "tutorial", "recipe", "plan", "target"],
+    "hate_speech": ["deserve", "should", "must", "eliminate", "remove", "pure", "cleanse", "rid"],
+    "sexual": ["describe", "write", "generate", "create", "story", "scene", "detail", "fantasy"],
+    "illegal": ["instructions", "step by step", "detailed", "guide", "tutorial", "easy", "undetectable", "anonymous"],
+    "self_harm": ["painless", "quick", "effective", "best", "easiest", "guaranteed", "method", "instructions"],
+}
 
 # Content categories with keyword lists and weights
 CONTENT_CATEGORIES: dict[str, list[tuple[str, int]]] = {
@@ -69,6 +109,67 @@ CONTENT_CATEGORIES: dict[str, list[tuple[str, int]]] = {
 }
 
 
+def _compute_proximity_bonus(text: str, match_positions: list[tuple[int, int]]) -> float:
+    """Compute bonus based on how close keyword matches are to each other.
+
+    Returns a value between 0 and 0.2. Closer matches = higher bonus.
+    """
+    if len(match_positions) < 2:
+        return 0.0
+
+    # Sort by start position
+    positions = sorted(match_positions, key=lambda x: x[0])
+    min_gap = float("inf")
+    for i in range(len(positions) - 1):
+        gap = positions[i + 1][0] - positions[i][1]
+        if gap < min_gap:
+            min_gap = gap
+
+    # Normalize: 0 chars apart = 0.2 bonus, 200+ chars = 0 bonus
+    if min_gap <= 0:
+        return 0.2
+    if min_gap >= 200:
+        return 0.0
+    return round(0.2 * (1 - min_gap / 200), 4)
+
+
+def _compute_context_bonus(text: str, category: str) -> float:
+    """Compute bonus based on presence of context amplifier words.
+
+    Returns a value between 0 and 0.15.
+    """
+    amplifiers = CONTEXT_AMPLIFIERS.get(category, [])
+    if not amplifiers:
+        return 0.0
+
+    text_lower = text.lower()
+    found = sum(1 for amp in amplifiers if amp in text_lower)
+    if found == 0:
+        return 0.0
+
+    # Scale: 1 amplifier = 0.05, 2 = 0.1, 3+ = 0.15
+    return min(0.15, round(found * 0.05, 4))
+
+
+def _determine_severity(confidence: float, num_keywords: int, categories_flagged: int) -> str:
+    """Determine severity level based on confidence scoring.
+
+    - low: single keyword match, low confidence
+    - medium: multiple keyword matches
+    - high: explicit + context amplifiers present
+    - critical: multiple categories flagged or very high confidence
+    """
+    if categories_flagged >= 2:
+        return "critical"
+    if confidence >= 0.8:
+        return "critical"
+    if confidence >= 0.6:
+        return "high"
+    if num_keywords >= 2 or confidence >= 0.35:
+        return "medium"
+    return "low"
+
+
 def filter_content(text: str, categories: list[str] | None = None) -> list[ContentFlag]:
     """Filter text for harmful content across categories.
 
@@ -77,7 +178,7 @@ def filter_content(text: str, categories: list[str] | None = None) -> list[Conte
         categories: List of category names to check. None means check all.
 
     Returns:
-        List of ContentFlag objects for flagged categories.
+        List of ContentFlag objects for flagged categories, with confidence scores and severity.
     """
     if not text or not text.strip():
         return []
@@ -92,25 +193,60 @@ def filter_content(text: str, categories: list[str] | None = None) -> list[Conte
             continue
 
         matched_terms = []
-        max_score = 0
+        weights: list[int] = []
+        match_positions: list[tuple[int, int]] = []
 
         for pattern, weight in CONTENT_CATEGORIES[category]:
-            matches = re.findall(pattern, text_lower, re.IGNORECASE)
-            if matches:
-                # Flatten if needed (groups return tuples)
-                for m in matches:
-                    term = m if isinstance(m, str) else " ".join(m)
-                    matched_terms.append(term.strip())
-                max_score = max(max_score, weight)
+            for m in re.finditer(pattern, text_lower, re.IGNORECASE):
+                term = m.group(0).strip()
+                matched_terms.append(term)
+                weights.append(weight)
+                match_positions.append((m.start(), m.end()))
 
         if matched_terms:
+            max_weight = max(weights)
+            avg_weight = sum(weights) / len(weights)
+            keyword_count = len(matched_terms)
+
+            # Base confidence from weight (0-100 -> 0-0.65)
+            base_confidence = (max_weight / 100) * 0.65
+
+            # Keyword count bonus: more matches = higher confidence (up to 0.2 extra)
+            count_bonus = min(0.2, (keyword_count - 1) * 0.07)
+
+            # Proximity bonus (up to 0.2)
+            proximity_bonus = _compute_proximity_bonus(text, match_positions)
+
+            # Context amplifier bonus (up to 0.15)
+            context_bonus = _compute_context_bonus(text, category)
+
+            confidence = min(1.0, base_confidence + count_bonus + proximity_bonus + context_bonus)
+
+            detail = CategoryDetail(
+                keyword_count=keyword_count,
+                max_weight=max_weight,
+                avg_weight=avg_weight,
+                proximity_bonus=proximity_bonus,
+                context_bonus=context_bonus,
+                confidence=confidence,
+                matched_patterns=matched_terms,
+            )
+
             flags.append(
                 ContentFlag(
                     category=category,
                     matched_terms=matched_terms,
-                    score=max_score,
+                    score=max_weight,
+                    confidence=confidence,
+                    detail=detail,
                 )
             )
+
+    # Determine severity for each flag, factoring in how many categories were flagged
+    total_categories_flagged = len(flags)
+    for flag in flags:
+        kw_count = flag.detail.keyword_count if flag.detail else len(flag.matched_terms)
+        flag.severity = _determine_severity(flag.confidence, kw_count, total_categories_flagged)
 
     return flags
 
